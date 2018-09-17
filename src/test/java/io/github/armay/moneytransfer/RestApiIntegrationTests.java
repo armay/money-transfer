@@ -160,6 +160,7 @@ final class RestApiIntegrationTests {
         Event[] events = Unirest.get(url)
             .queryString("transfer_id", transferId)
             .asObject(Event[].class).getBody();
+        assertEquals(2, events.length);
         LOG.info("GET: {}?transfer_id={} -> {}", url, transferId, events);
     }
 
