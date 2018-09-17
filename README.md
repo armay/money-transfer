@@ -57,9 +57,9 @@ Sample response:
 }
 ``` 
 
-Here `id` is the SHA1 hash of the event (Alice was charged 10.00$) 
-and `transferId` is the SHA1 hash of the transfer (Alice sent Bob 10.00$).
-On success, Bob gets notification of the corresponding event (Bob was credited 10.00$):
+Here `id` is the SHA1 hash of the event (Alice was charged $10.00) 
+and `transferId` is the SHA1 hash of the transfer (Alice sent Bob $10.00).
+On success, Bob gets notification of the corresponding event (Bob was credited $10.00):
 
 ```json 
 { 
