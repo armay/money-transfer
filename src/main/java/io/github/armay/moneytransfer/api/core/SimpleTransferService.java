@@ -107,7 +107,7 @@ public final class SimpleTransferService implements TransferService {
                 LOG.error("Transfer failed: ", transfer, e);
                 throw e;
             } finally {
-                if (lock.validate(stamp)) {
+                if (lock.tryConvertToWriteLock(stamp) != 0) {
                     sendLocks.remove(transfer.getId());
                 }
             }
@@ -162,7 +162,7 @@ public final class SimpleTransferService implements TransferService {
                 LOG.error("Transfer failed: {}. Reason: ", transfer, e);
                 throw e;
             } finally {
-                if (lock.validate(stamp)) {
+                if (lock.tryConvertToWriteLock(stamp) != 0) {
                     receiveLocks.remove(transfer.getId());
                 }
             }
