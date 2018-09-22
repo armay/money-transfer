@@ -257,12 +257,12 @@ final class RestApiIntegrationTests {
         }
 
         List<Account> accounts = jdbi.withHandle(handle -> handle.createQuery("SELECT * FROM ACCOUNT")
-                .mapToBean(Account.class).list());
+            .mapToBean(Account.class).list());
         List<Card> cards = jdbi.withHandle(handle -> handle.createQuery("SELECT * FROM CARD")
-                .mapToBean(Card.class).list());
+            .mapToBean(Card.class).list());
         List<Event> events = jdbi.withHandle(handle -> handle.createQuery("SELECT * FROM EVENT")
-                .registerRowMapper(ConstructorMapper.factory(Event.class))
-                .mapTo(Event.class).list());
+            .registerRowMapper(ConstructorMapper.factory(Event.class))
+            .mapTo(Event.class).list());
         LOG.info("Actual data: \n - Accounts: {} \n - Cards: {} \n - Events: {}", accounts, cards, events);
     }
 
