@@ -9,7 +9,7 @@ import java.util.concurrent.CompletableFuture;
 
 public interface TransferService {
 
-    void alert(@NotNull Account account, Event event);
+    void alert(@NotNull Account account, @NotNull Event event);
 
     CompletableFuture<Event> send(@NotNull Transfer transfer);
 

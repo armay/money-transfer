@@ -25,7 +25,8 @@ public final class SimpleTransferService implements TransferService {
     private AccountDao accountDao;
     private EventDao eventDao;
 
-    private ConcurrentHashMap<String, StampedLock> locks;
+    private ConcurrentHashMap<String, StampedLock> sendLocks;
+    private ConcurrentHashMap<String, StampedLock> receiveLocks;
     private ExecutorService senders;
     private ExecutorService receivers;
 
@@ -39,23 +40,43 @@ public final class SimpleTransferService implements TransferService {
         this.eventDao = eventDao;
         this.senders = Executors.newFixedThreadPool(sendersPoolSize);
         this.receivers = Executors.newFixedThreadPool(receiversPoolSize);
-        this.locks = new ConcurrentHashMap<>((sendersPoolSize + receiversPoolSize) * 2);
+        this.sendLocks = new ConcurrentHashMap<>(sendersPoolSize * 2);
+        this.receiveLocks = new ConcurrentHashMap<>(receiversPoolSize * 2);
     }
 
-    private Account findAccount(String pan) {
+    private Account findAccount(@NotNull String pan) {
         return accountDao.findByPan(pan).orElseThrow(() -> new CardNotFoundException(pan));
     }
 
-    private void checkForDuplicates(Transfer transfer) {
+    private void checkForDuplicates(@NotNull Transfer transfer) {
         if (!eventDao.findByTransferId(transfer.getId()).isEmpty()) {
             throw new DuplicateTransferException(transfer);
         }
     }
 
-    private void checkForDuplicates(Event event) {
+    private void checkForDuplicates(@NotNull Event event) {
         if (eventDao.findById(event.getId()).isPresent()) {
             throw new DuplicateEventException(event);
         }
+    }
+
+    private long createEvent(
+        @NotNull Transfer transfer,
+        @NotNull Event event,
+        @NotNull StampedLock lock,
+        long stamp
+    ) {
+        stamp = lock.tryConvertToWriteLock(stamp);
+        if (stamp != 0) {
+            try {
+                eventDao.create(event);
+            } finally {
+                stamp = lock.tryConvertToOptimisticRead(stamp);
+            }
+        } else {
+            throw new OptimisticLockException(transfer);
+        }
+        return stamp;
     }
 
     @Override
@@ -68,7 +89,7 @@ public final class SimpleTransferService implements TransferService {
         LOG.info("Outgoing transfer: {}", transfer);
         return CompletableFuture.supplyAsync(() -> {
             Event debit;
-            StampedLock lock = locks.computeIfAbsent(transfer.getId(), it -> new StampedLock());
+            StampedLock lock = sendLocks.computeIfAbsent(transfer.getId(), it -> new StampedLock());
             long stamp = lock.tryOptimisticRead();
             try {
                 Account sender = findAccount(transfer.getSenderPan());
@@ -80,23 +101,14 @@ public final class SimpleTransferService implements TransferService {
                     transfer.getId(),
                     ZonedDateTime.now(ZoneOffset.UTC)
                 );
-                stamp = lock.tryConvertToWriteLock(stamp);
-                if (stamp != 0) {
-                    try {
-                        eventDao.create(debit);
-                        alert(sender, debit);
-                    } finally {
-                        lock.unlockWrite(stamp);
-                    }
-                } else {
-                    throw new OptimisticLockException(transfer);
-                }
+                stamp = createEvent(transfer, debit, lock, stamp);
+                alert(sender, debit);
             } catch (Exception e) {
                 LOG.error("Transfer failed: ", transfer, e);
                 throw e;
             } finally {
                 if (lock.validate(stamp)) {
-                    locks.remove(transfer.getId());
+                    sendLocks.remove(transfer.getId());
                 }
             }
             if (transfer.isInternal()) {
@@ -114,7 +126,7 @@ public final class SimpleTransferService implements TransferService {
         LOG.info("Incoming transfer: {}", transfer);
         return CompletableFuture.supplyAsync(() -> {
             Event credit;
-            StampedLock lock = locks.computeIfAbsent(transfer.getId(), it -> new StampedLock());
+            StampedLock lock = receiveLocks.computeIfAbsent(transfer.getId(), it -> new StampedLock());
             long stamp = lock.tryOptimisticRead();
             try {
                 Account receiver = findAccount(transfer.getReceiverPan());
@@ -126,18 +138,8 @@ public final class SimpleTransferService implements TransferService {
                     ZonedDateTime.now(ZoneOffset.UTC)
                 );
                 checkForDuplicates(credit);
-                stamp = lock.tryConvertToWriteLock(stamp);
-                if (stamp != 0) {
-                    try {
-                        eventDao.create(credit);
-                        alert(receiver, credit);
-                    } finally {
-                        lock.unlockWrite(stamp);
-                        locks.remove(transfer.getId());
-                    }
-                } else {
-                    throw new OptimisticLockException(transfer);
-                }
+                stamp = createEvent(transfer, credit, lock, stamp);
+                alert(receiver, credit);
             } catch (CardNotFoundException e) {
                 if (transfer.isInternal()) {
                     LOG.info("Internal refund: {}. Reason: ", transfer, e);
@@ -161,7 +163,7 @@ public final class SimpleTransferService implements TransferService {
                 throw e;
             } finally {
                 if (lock.validate(stamp)) {
-                    locks.remove(transfer.getId());
+                    receiveLocks.remove(transfer.getId());
                 }
             }
             return credit;
